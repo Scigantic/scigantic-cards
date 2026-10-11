@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "scigantic-cards card",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "identity": {"type": "string"},
+    "summary": {"type": "string"},
+    "layout": {"type": "string"},
+    "approx_bytes": {"type": ["integer", "null"], "minimum": 0},
+    "approx_items": {"type": ["integer", "null"], "minimum": 0},
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "dtype"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "dtype": {"type": "string"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "differs_from_upstream": {"type": "array", "items": {"type": "string"}},
+    "gotchas": {"type": "array", "items": {"type": "string"}},
+    "access": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["goal", "snippet"],
+        "additionalProperties": false,
+        "properties": {
+          "goal": {"type": "string"},
+          "snippet": {"type": "string"},
+          "verified": {"type": "boolean"}
+        }
+      }
+    },
+    "checked_at": {"type": "string"}
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "some-dataset",
+  "summary": "A dataset of things.",
+  "access": [
+    {"goal": "List files", "snippet": "glob.glob('~/data/*.csv')"}
+  ]
+}

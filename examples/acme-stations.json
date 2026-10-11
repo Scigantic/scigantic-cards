@@ -1,0 +1,28 @@
+{
+  "name": "acme-stations-2024",
+  "identity": "Acme Weather Network daily observations, 2024 release (fictional example)",
+  "summary": "Daily temperature and precipitation from the made-up Acme station network.",
+  "layout": "One gzipped CSV per station under by_station/.",
+  "approx_bytes": 3200000000,
+  "approx_items": 1200,
+  "fields": [
+    {"name": "station", "dtype": "string", "note": "8-character station id"},
+    {"name": "date", "dtype": "string", "note": "YYYYMMDD, not parsed"},
+    {"name": "element", "dtype": "string", "note": "TMAX, TMIN or PRCP"},
+    {"name": "value", "dtype": "int", "note": "Tenths of a unit"}
+  ],
+  "differs_from_upstream": [
+    "Station files are gzipped CSV. The original distribution is fixed-width text."
+  ],
+  "gotchas": [
+    "Missing values are -9999, not empty."
+  ],
+  "access": [
+    {
+      "goal": "Read one station",
+      "snippet": "import pandas as pd\ndf = pd.read_csv('by_station/AC000001.csv.gz')",
+      "verified": true
+    }
+  ],
+  "checked_at": "2026-10-11"
+}
