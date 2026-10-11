@@ -23,7 +23,7 @@ A card is a JSON object. Only `name` is required for the file to load. The linte
 | `summary` | string | One or two sentences |
 | `layout` | string | How files are organized |
 | `approx_bytes`, `approx_items` | integer or null | Size, for choosing between streaming and loading |
-| `fields` | list of `{name, dtype, note}` | Columns or variables |
+| `fields` | list of `{name, dtype, note, group}` | Columns or variables. `group` is the table or file a field belongs to, optional |
 | `differs_from_upstream` | list of strings | How this copy differs from the well-known version |
 | `gotchas` | list of strings | Sentinel values, unit conventions, known bad files |
 | `access` | list of `{goal, snippet, verified}` | Code that opens the data. `verified` is true if you ran it |
@@ -62,7 +62,7 @@ Exit codes: 0 no problems, 1 lint errors (or warnings with `--strict`), 2 a file
 | `size` | warn | neither size field is set |
 | `unverified-access` | warn | a snippet has `verified: false` |
 | `field-dtype` | warn | a field has no dtype |
-| `field-duplicate` | warn | a field name appears twice |
+| `field-duplicate` | warn | the same name appears twice in the same group |
 | `checked-at` | warn | `checked_at` is not an ISO date |
 | `budget` | warn | the card is over the budget as compact UTF-8 JSON |
 

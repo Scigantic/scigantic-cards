@@ -20,7 +20,8 @@
         "properties": {
           "name": {"type": "string"},
           "dtype": {"type": "string"},
-          "note": {"type": "string"}
+          "note": {"type": "string"},
+          "group": {"type": "string"}
         }
       }
     },

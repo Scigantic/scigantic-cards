@@ -60,6 +60,24 @@ def test_checked_at_accepts(value):
     assert "checked-at" not in rules(make_card(checked_at=value))
 
 
+def test_same_name_in_different_groups_is_not_a_duplicate():
+    c = make_card(fields=[Field("samples", "int", group="clinical"),
+                          Field("samples", "int", group="rna_seq")])
+    assert "field-duplicate" not in rules(c)
+
+
+def test_same_name_in_same_group_is_a_duplicate():
+    c = make_card(fields=[Field("samples", "int", group="clinical"),
+                          Field("samples", "str", group="clinical")])
+    issues = [i for i in lint(c) if i.rule == "field-duplicate"]
+    assert len(issues) == 1 and "clinical.samples" in issues[0].message
+
+
+def test_ungrouped_and_grouped_same_name_are_distinct():
+    c = make_card(fields=[Field("id", "int"), Field("id", "int", group="t")])
+    assert "field-duplicate" not in rules(c)
+
+
 def test_either_differs_or_gotchas_satisfies_delta():
     assert "delta" not in rules(make_card(differs_from_upstream=[], gotchas=["x"]))
 

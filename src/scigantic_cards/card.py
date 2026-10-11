@@ -17,9 +17,12 @@ class CardError(ValueError):
 
 @dataclass
 class Field:
+    """A column or variable. `group` names the table or file it belongs to."""
+
     name: str
     dtype: str
     note: str = ""
+    group: str = ""
 
 
 @dataclass
@@ -148,7 +151,7 @@ def _no_extra(obj: dict[str, Any], allowed: set[str], where: str) -> None:
 
 def _field(v: Any, where: str) -> Field:
     obj = _obj(v, where)
-    _no_extra(obj, {"name", "dtype", "note"}, where)
+    _no_extra(obj, {"name", "dtype", "note", "group"}, where)
     for k in ("name", "dtype"):
         if k not in obj:
             raise CardError(f"{where}.{k}: required")
@@ -156,6 +159,7 @@ def _field(v: Any, where: str) -> Field:
         name=_str(obj["name"], f"{where}.name"),
         dtype=_str(obj["dtype"], f"{where}.dtype"),
         note=_str(obj.get("note", ""), f"{where}.note"),
+        group=_str(obj.get("group", ""), f"{where}.group"),
     )
 
 

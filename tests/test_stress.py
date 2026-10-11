@@ -22,7 +22,9 @@ good_count = st.none() | st.integers(min_value=0, max_value=10**15) | st.sampled
 edge = st.sampled_from([-1, -3, 1.5, True, False, None, "", "x", [], {}, float("nan"), float("inf")])
 bad_or_any = edge | json_any
 
-valid_field = st.fixed_dictionaries({"name": text, "dtype": text}, optional={"note": text})
+valid_field = st.fixed_dictionaries(
+    {"name": text, "dtype": text}, optional={"note": text, "group": text}
+)
 valid_access = st.fixed_dictionaries(
     {"goal": text, "snippet": text}, optional={"verified": st.booleans()}
 )
@@ -51,7 +53,8 @@ NEAR = {
     "bogus": ["x", 1, None],
 }
 SUB_NEAR = {
-    "field": {"name": STR_NEAR, "dtype": STR_NEAR + [None], "note": STR_NEAR, "bogus": ["x", 1]},
+    "field": {"name": STR_NEAR, "dtype": STR_NEAR + [None], "note": STR_NEAR,
+              "group": STR_NEAR, "bogus": ["x", 1]},
     "access": {"goal": STR_NEAR, "snippet": STR_NEAR, "verified": ["yes", 1, 0, None, "true"],
                "bogus": ["x", 1]},
 }
