@@ -9,6 +9,7 @@
     "identity": {"type": "string"},
     "summary": {"type": "string"},
     "layout": {"type": "string"},
+    "location": {"type": "string"},
     "approx_bytes": {"type": ["integer", "null"], "minimum": 0},
     "approx_items": {"type": ["integer", "null"], "minimum": 0},
     "fields": {
@@ -36,7 +37,28 @@
         "properties": {
           "goal": {"type": "string"},
           "snippet": {"type": "string"},
-          "verified": {"type": "boolean"}
+          "verified": {"type": "boolean"},
+          "language": {"type": "string"}
+        }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string"},
+          "size": {"type": ["integer", "null"], "minimum": 0},
+          "format": {"type": "string"},
+          "summary": {"type": "string"},
+          "fields": {"type": "object"},
+          "head_b64": {
+            "type": "string",
+            "maxLength": 6000,
+            "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![\\s\\S])"
+          }
         }
       }
     },

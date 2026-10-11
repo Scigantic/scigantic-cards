@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scigantic-cards"
-version = "0.2.0"
+version = "0.3.0"
 description = "A small data card format and linter for LLM agents: record what differs from the well-known dataset, how big it is, and how to open it."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,7 +24,11 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "mypy", "jsonschema", "hypothesis"]
+headers = ["scigantic-headers>=0.5,<1"]
+remote = ["fsspec>=2024.1"]
+s3 = ["fsspec>=2024.1", "s3fs"]
+gcs = ["fsspec>=2024.1", "gcsfs"]
+dev = ["pytest", "mypy", "jsonschema", "hypothesis", "fsspec>=2024.1", "scigantic-headers>=0.5,<1"]
 
 [project.scripts]
 scigantic-cards = "scigantic_cards.cli:main"

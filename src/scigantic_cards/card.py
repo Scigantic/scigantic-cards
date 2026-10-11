@@ -6,7 +6,11 @@ otherwise.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import re
+import zlib
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -32,6 +36,20 @@ class Access:
     goal: str
     snippet: str
     verified: bool = False
+    language: str = "python"
+
+
+@dataclass
+class Sample:
+    """One example file. `fields` holds decoded header values; `head_b64` is
+    the first bytes of the file, base64 encoded, and is optional."""
+
+    path: str
+    size: int | None = None
+    format: str = ""
+    summary: str = ""
+    fields: dict[str, Any] = field(default_factory=dict)
+    head_b64: str = ""
 
 
 @dataclass
@@ -40,23 +58,61 @@ class Card:
     identity: str = ""
     summary: str = ""
     layout: str = ""
+    location: str = ""
     approx_bytes: int | None = None
     approx_items: int | None = None
     fields: list[Field] = field(default_factory=list)
     differs_from_upstream: list[str] = field(default_factory=list)
     gotchas: list[str] = field(default_factory=list)
     access: list[Access] = field(default_factory=list)
+    samples: list[Sample] = field(default_factory=list)
     checked_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self, indent: int | None = 2) -> str:
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False, allow_nan=False)
+
+    def to_b64(self, compress: bool = False) -> str:
+        """URL-safe base64 of the compact JSON, for env vars, headers and URLs.
+
+        With `compress=True` the JSON is deflated first and the result starts
+        with "z:". `from_b64` accepts both forms.
+        """
+        raw = json.dumps(
+            self.to_dict(), ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+        if compress:
+            return "z:" + base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode("ascii")
+        return base64.urlsafe_b64encode(raw).decode("ascii")
+
+    @classmethod
+    def from_b64(cls, text: str) -> "Card":
+        text = "".join(text.split())
+        compressed = text.startswith("z:")
+        if compressed:
+            text = text[2:]
+        if len(text) > MAX_B64_CHARS:
+            raise CardError(f"encoded card is larger than {MAX_B64_CHARS} characters")
+        try:
+            raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+            if compressed:
+                d = zlib.decompressobj()
+                raw = d.decompress(raw, MAX_DECODED_BYTES + 1)
+                if d.unconsumed_tail or d.decompress(b"", 1):
+                    raise CardError(f"decoded card is larger than {MAX_DECODED_BYTES} bytes")
+            if len(raw) > MAX_DECODED_BYTES:
+                raise CardError(f"decoded card is larger than {MAX_DECODED_BYTES} bytes")
+            return cls.from_json(raw.decode("utf-8"))
+        except (binascii.Error, zlib.error, UnicodeDecodeError, ValueError) as e:
+            if isinstance(e, CardError):
+                raise
+            raise CardError(f"not a valid encoded card: {e}") from None
 
     def compact_size(self) -> int:
         """UTF-8 bytes of the compact JSON form. This is what the budget measures."""
-        text = json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
+        text = json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
         return len(text.encode("utf-8"))
 
     @classmethod
@@ -73,6 +129,7 @@ class Card:
             identity=_str(obj.get("identity", ""), "card.identity"),
             summary=_str(obj.get("summary", ""), "card.summary"),
             layout=_str(obj.get("layout", ""), "card.layout"),
+            location=_str(obj.get("location", ""), "card.location"),
             approx_bytes=_count(obj.get("approx_bytes"), "card.approx_bytes"),
             approx_items=_count(obj.get("approx_items"), "card.approx_items"),
             fields=[
@@ -87,13 +144,17 @@ class Card:
                 _access(x, f"card.access[{i}]")
                 for i, x in enumerate(_list(obj.get("access", []), "card.access"))
             ],
+            samples=[
+                _sample(x, f"card.samples[{i}]")
+                for i, x in enumerate(_list(obj.get("samples", []), "card.samples"))
+            ],
             checked_at=_str(obj.get("checked_at", ""), "card.checked_at"),
         )
 
     @classmethod
     def from_json(cls, text: str) -> "Card":
         try:
-            data = json.loads(text)
+            data = json.loads(text, parse_constant=_reject_constant)
         except RecursionError:
             raise CardError("JSON is nested too deeply") from None
         except json.JSONDecodeError as e:
@@ -102,9 +163,34 @@ class Card:
 
 
 _TOP_KEYS = {
-    "name", "identity", "summary", "layout", "approx_bytes", "approx_items",
-    "fields", "differs_from_upstream", "gotchas", "access", "checked_at",
+    "name", "identity", "summary", "layout", "location", "approx_bytes", "approx_items",
+    "fields", "differs_from_upstream", "gotchas", "access", "samples", "checked_at",
 }
+
+MAX_B64_CHARS = 8_000_000
+MAX_DECODED_BYTES = 5_000_000
+
+# Standard base64 with padding, anchored without `$` so Python and JSON Schema
+# (ECMAScript) regex engines treat a trailing newline the same way.
+HEAD_B64_PATTERN = r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![\s\S])"
+HEAD_B64_MAX_CHARS = 6000
+_HEAD_B64 = re.compile(HEAD_B64_PATTERN)
+
+
+def _reject_constant(name: str) -> Any:
+    raise CardError(f"{name} is not valid JSON")
+
+
+def _check_finite(v: Any, where: str) -> None:
+    stack = [v]
+    while stack:
+        x = stack.pop()
+        if isinstance(x, float) and (x != x or x in (float("inf"), float("-inf"))):
+            raise CardError(f"{where}: NaN and Infinity are not allowed")
+        elif isinstance(x, dict):
+            stack.extend(x.values())
+        elif isinstance(x, list):
+            stack.extend(x)
 
 
 def _obj(v: Any, where: str) -> dict[str, Any]:
@@ -165,7 +251,7 @@ def _field(v: Any, where: str) -> Field:
 
 def _access(v: Any, where: str) -> Access:
     obj = _obj(v, where)
-    _no_extra(obj, {"goal", "snippet", "verified"}, where)
+    _no_extra(obj, {"goal", "snippet", "verified", "language"}, where)
     for k in ("goal", "snippet"):
         if k not in obj:
             raise CardError(f"{where}.{k}: required")
@@ -176,6 +262,31 @@ def _access(v: Any, where: str) -> Access:
         goal=_str(obj["goal"], f"{where}.goal"),
         snippet=_str(obj["snippet"], f"{where}.snippet"),
         verified=verified,
+        language=_str(obj.get("language", "python"), f"{where}.language"),
+    )
+
+
+def _finite_obj(v: Any, where: str) -> dict[str, Any]:
+    d = dict(_obj(v, where))
+    _check_finite(d, where)
+    return d
+
+
+def _sample(v: Any, where: str) -> Sample:
+    obj = _obj(v, where)
+    _no_extra(obj, {"path", "size", "format", "summary", "fields", "head_b64"}, where)
+    if "path" not in obj:
+        raise CardError(f"{where}.path: required")
+    head = _str(obj.get("head_b64", ""), f"{where}.head_b64")
+    if len(head) > HEAD_B64_MAX_CHARS or not _HEAD_B64.search(head):
+        raise CardError(f"{where}.head_b64: not base64 or longer than {HEAD_B64_MAX_CHARS} characters")
+    return Sample(
+        path=_str(obj["path"], f"{where}.path"),
+        size=_count(obj.get("size"), f"{where}.size"),
+        format=_str(obj.get("format", ""), f"{where}.format"),
+        summary=_str(obj.get("summary", ""), f"{where}.summary"),
+        fields=_finite_obj(obj.get("fields", {}), f"{where}.fields"),
+        head_b64=head,
     )
 
 
