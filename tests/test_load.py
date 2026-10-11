@@ -18,6 +18,13 @@ def test_round_trip_non_ascii():
     assert "日本語" in c.to_json()
 
 
+def test_field_group_round_trips_and_defaults_empty():
+    c = Card.from_dict({"name": "x", "fields": [
+        {"name": "a", "dtype": "i", "group": "t1"}, {"name": "b", "dtype": "i"}]})
+    assert [f.group for f in c.fields] == ["t1", ""]
+    assert Card.from_json(c.to_json()) == c
+
+
 def test_minimal_card():
     c = Card.from_dict({"name": "x"})
     assert c.fields == [] and c.approx_bytes is None
@@ -42,6 +49,7 @@ def test_minimal_card():
     ({"name": "x", "fields": [1]}, "card.fields[0]"),
     ({"name": "x", "fields": [{"name": "a"}]}, "card.fields[0].dtype"),
     ({"name": "x", "fields": [{"name": "a", "dtype": "i", "z": 1}]}, "z"),
+    ({"name": "x", "fields": [{"name": "a", "dtype": "i", "group": 3}]}, "card.fields[0].group"),
     ({"name": "x", "gotchas": "a"}, "card.gotchas"),
     ({"name": "x", "gotchas": ["a", 2]}, "card.gotchas[1]"),
     ({"name": "x", "access": [{"goal": "g"}]}, "card.access[0].snippet"),

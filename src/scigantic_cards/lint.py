@@ -65,13 +65,14 @@ def lint(card: Card, byte_budget: int = DEFAULT_BYTE_BUDGET) -> list[Issue]:
                 "unless it goes through os.path.expanduser or Path.expanduser.",
             ))
 
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for f in card.fields:
+        label = f"{f.group}.{f.name}" if f.group else f.name
         if not f.dtype.strip():
-            out.append(Issue("field-dtype", "warn", f"Field '{f.name}' has no dtype."))
-        if f.name in seen:
-            out.append(Issue("field-duplicate", "warn", f"Field '{f.name}' is listed twice."))
-        seen.add(f.name)
+            out.append(Issue("field-dtype", "warn", f"Field '{label}' has no dtype."))
+        if (f.group, f.name) in seen:
+            out.append(Issue("field-duplicate", "warn", f"Field '{label}' is listed twice."))
+        seen.add((f.group, f.name))
 
     if not _is_iso_date(card.checked_at):
         out.append(Issue(
