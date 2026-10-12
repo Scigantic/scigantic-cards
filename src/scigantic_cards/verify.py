@@ -52,6 +52,8 @@ def _kill(proc: subprocess.Popen) -> None:
 
 
 def _run(snippet: str, timeout: float, cwd: str | None) -> tuple[str, str]:
+    if "\x00" in snippet:  # Python versions disagree on this, so decide here
+        return "failed", "snippet contains a NUL byte"
     kw: dict = {"start_new_session": True} if os.name == "posix" else {}
     # The snippet goes through a file, not argv, so its size and NUL bytes cannot break the launch.
     with tempfile.TemporaryDirectory(prefix="scigantic-cards-") as tmp:
