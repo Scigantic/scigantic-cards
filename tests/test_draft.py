@@ -144,7 +144,9 @@ def test_truncation_is_reported_and_sizes_are_not_claimed(tmp_path):
 def test_max_depth(tmp_path):
     write(tmp_path, "a/b/c/d.csv", "x\n1\n")
     write(tmp_path, "top.csv", "x\n1\n")
-    assert draft_card(str(tmp_path), max_depth=1).approx_items == 1
+    shallow = draft_card(str(tmp_path), max_depth=1)
+    assert shallow.approx_items is None  # a folder was skipped, so the count is only a lower bound
+    assert "1 files" in shallow.layout and "deeper than 1 levels" in shallow.layout
     assert draft_card(str(tmp_path), max_depth=3).approx_items == 2
 
 

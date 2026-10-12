@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     ip.add_argument("-o", "--output", help="write the card here instead of stdout")
     ip.add_argument("--name")
     ip.add_argument("--max-files", type=int, default=5000)
-    ip.add_argument("--max-depth", type=int, default=8)
+    ip.add_argument("--max-depth", type=int, default=16)
     ip.add_argument("--max-samples", type=int, default=6)
     ip.add_argument("--embed-bytes", type=int, default=0, metavar="N",
                     help=f"embed the first N bytes (max {MAX_EMBED_BYTES}) of sampled files "

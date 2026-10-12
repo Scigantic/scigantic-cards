@@ -70,6 +70,7 @@ class LocalSource:
         if not os.path.exists(self.root):
             raise DraftError(f"{root}: no such file or directory")
         self.unreadable = 0
+        self.too_deep = 0
 
     def walk(self, max_files, max_depth, include_hidden, deadline):
         if os.path.isfile(self.root):
@@ -101,6 +102,8 @@ class LocalSource:
                     if e.is_dir(follow_symlinks=False):
                         if depth + 1 <= max_depth:
                             subdirs.append((e.path, f"{rel}{e.name}/", depth + 1))
+                        else:
+                            self.too_deep += 1
                         continue
                     st = e.stat(follow_symlinks=False)
                 except OSError:
@@ -151,6 +154,7 @@ class FsspecSource:
             raise DraftError(f"{url}: {e}") from None
         self.root = self.root.rstrip("/")
         self.listing_error = ""
+        self.too_deep = 0
 
     def _ls(self, path):
         return self.fs.ls(path, detail=True)
@@ -183,8 +187,11 @@ class FsspecSource:
                 if not include_hidden and base.startswith("."):
                     continue
                 if it.get("type") == "directory":
-                    if depth + 1 <= max_depth and name != d.rstrip("/"):
-                        subdirs.append((name, depth + 1))
+                    if name != d.rstrip("/"):
+                        if depth + 1 <= max_depth:
+                            subdirs.append((name, depth + 1))
+                        else:
+                            self.too_deep += 1
                     continue
                 if it.get("type") != "file":
                     continue
@@ -337,7 +344,7 @@ def draft_card(
     *,
     name: str | None = None,
     max_files: int = 5000,
-    max_depth: int = 8,
+    max_depth: int = 16,
     max_samples: int = 6,
     embed_bytes: int = 0,
     include_hidden: bool = False,
@@ -353,7 +360,8 @@ def draft_card(
     deadline = time.monotonic() + time_limit
 
     entries = list(src.walk(max_files + 1, max_depth, include_hidden, deadline))
-    stopped_early = len(entries) > max_files or time.monotonic() > deadline
+    too_deep = getattr(src, "too_deep", 0)
+    stopped_early = len(entries) > max_files or time.monotonic() > deadline or too_deep > 0
     entries = entries[:max_files]
 
     total = sum(e.size for e in entries)
@@ -361,7 +369,11 @@ def draft_card(
     tops = Counter(e.path.split("/", 1)[0] + "/" for e in entries if "/" in e.path)
 
     parts = [f"{len(entries):,} files, {_human(total)}"]
-    parts[0] += " (listing stopped early; counts and sizes are lower bounds)." if stopped_early else "."
+    if too_deep:
+        parts[0] += (f" (listing stopped early; {too_deep:,} {'folder' if too_deep == 1 else 'folders'} deeper than {max_depth} levels "
+                     "{'was' if too_deep == 1 else 'were'} not listed, so counts and sizes are lower bounds).")
+    else:
+        parts[0] += " (listing stopped early; counts and sizes are lower bounds)." if stopped_early else "."
     if tops:
         shown = ", ".join(f"{d} ({n:,})" for d, n in sorted(tops.items(), key=lambda kv: (-kv[1], kv[0]))[:8])
         more = f" and {len(tops) - 8} more" if len(tops) > 8 else ""
