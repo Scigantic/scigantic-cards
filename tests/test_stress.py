@@ -1,4 +1,5 @@
 """Property-based tests. The loader and the shipped JSON Schema must agree."""
+import base64
 import json
 import time
 
@@ -26,7 +27,21 @@ valid_field = st.fixed_dictionaries(
     {"name": text, "dtype": text}, optional={"note": text, "group": text}
 )
 valid_access = st.fixed_dictionaries(
-    {"goal": text, "snippet": text}, optional={"verified": st.booleans()}
+    {"goal": text, "snippet": text}, optional={"verified": st.booleans(), "language": text}
+)
+b64_chunk = st.binary(max_size=60).map(lambda b: base64.b64encode(b).decode())
+finite_leaf = (st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False)
+               | st.text(max_size=20))
+finite_json = st.recursive(
+    finite_leaf,
+    lambda c: st.lists(c, max_size=3) | st.dictionaries(st.text(max_size=8), c, max_size=3),
+    max_leaves=10,
+)
+valid_sample = st.fixed_dictionaries(
+    {"path": text},
+    optional={"size": good_count, "format": text, "summary": text,
+              "fields": st.dictionaries(st.text(max_size=8), finite_json, max_size=4),
+              "head_b64": b64_chunk},
 )
 valid_doc = st.fixed_dictionaries(
     {"name": st.text(min_size=1, max_size=30)},
@@ -37,6 +52,8 @@ valid_doc = st.fixed_dictionaries(
         "differs_from_upstream": st.lists(text, max_size=4),
         "gotchas": st.lists(text, max_size=4),
         "access": st.lists(valid_access, max_size=4),
+        "samples": st.lists(valid_sample, max_size=3),
+        "location": text,
         "checked_at": text,
     },
 )
@@ -50,17 +67,22 @@ NEAR = {
     "access": ["a", None, {}, [1], [None], [{}]],
     "differs_from_upstream": ["a", None, {}, [1], [None]],
     "gotchas": ["a", None, {}, [1], [None]],
+    "location": STR_NEAR,
+    "samples": ["a", None, {}, [1], [None], [{}], [{"path": 1}], [{"path": "p", "size": -1}]],
     "bogus": ["x", 1, None],
 }
 SUB_NEAR = {
     "field": {"name": STR_NEAR, "dtype": STR_NEAR + [None], "note": STR_NEAR,
               "group": STR_NEAR, "bogus": ["x", 1]},
     "access": {"goal": STR_NEAR, "snippet": STR_NEAR, "verified": ["yes", 1, 0, None, "true"],
+               "language": STR_NEAR, "bogus": ["x", 1]},
+    "sample": {"path": STR_NEAR + [None], "size": COUNT_NEAR, "format": STR_NEAR, "summary": STR_NEAR,
+               "fields": ["a", [], None, 3], "head_b64": ["AAA", "A===", "AAAA\n", "é", 5, None, "AA AA", "-_-_"],
                "bogus": ["x", 1]},
 }
 
-TOP = ["name", "identity", "summary", "layout", "approx_bytes", "approx_items", "fields",
-       "differs_from_upstream", "gotchas", "access", "checked_at", "bogus"]
+TOP = ["name", "identity", "summary", "layout", "location", "approx_bytes", "approx_items", "fields",
+       "differs_from_upstream", "gotchas", "access", "samples", "checked_at", "bogus"]
 
 
 def _dict_items(v):
@@ -72,7 +94,7 @@ def cardish(draw):
     """A valid card with up to two single-value mutations, at top level or one level down."""
     doc = draw(valid_doc)
     for _ in range(draw(st.integers(0, 2))):
-        where = draw(st.sampled_from(["top", "field", "access", "list_item", "drop"]))
+        where = draw(st.sampled_from(["top", "field", "access", "list_item", "drop", "sample"]))
         value = draw(bad_or_any)
         if where == "top":
             key = draw(st.sampled_from(TOP))
@@ -86,8 +108,13 @@ def cardish(draw):
             i = draw(st.integers(0, len(doc["access"]) - 1))
             key = draw(st.sampled_from(sorted(SUB_NEAR["access"])))
             doc["access"][i][key] = draw(st.sampled_from(SUB_NEAR["access"][key])) if draw(st.booleans()) else value
+        elif where == "sample" and _dict_items(doc.get("samples")):
+            i = draw(st.integers(0, len(doc["samples"]) - 1))
+            key = draw(st.sampled_from(sorted(SUB_NEAR["sample"])))
+            doc["samples"][i][key] = (draw(st.sampled_from(SUB_NEAR["sample"][key]))
+                                      if draw(st.booleans()) else value)
         elif where == "drop":
-            target = draw(st.sampled_from(["top", "fields", "access"]))
+            target = draw(st.sampled_from(["top", "fields", "access", "samples"]))
             if target == "top":
                 doc.pop(draw(st.sampled_from(TOP)), None)
             elif _dict_items(doc.get(target)):
@@ -201,3 +228,53 @@ def test_large_card_lints_quickly():
     issues = lint(card)
     assert time.perf_counter() - t < 5
     assert any(i.rule == "budget" for i in issues)
+
+
+# ---------------------------------------------------------------- draft_card on random trees
+
+import os
+
+from scigantic_cards import draft_card
+
+name_chars = st.characters(blacklist_categories=("Cs",), blacklist_characters="/\x00")
+file_name = st.text(name_chars, min_size=1, max_size=12).filter(lambda s: s not in (".", ".."))
+tree_files = st.dictionaries(
+    st.lists(file_name, min_size=1, max_size=4).map("/".join),
+    st.binary(max_size=120),
+    max_size=12,
+)
+
+
+def build(root, files) -> int:
+    n = 0
+    for rel, data in files.items():
+        p = os.path.join(root, *rel.split("/"))
+        try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            if os.path.isdir(p) or os.path.isfile(os.path.dirname(p)):
+                continue
+            with open(p, "wb") as fh:
+                fh.write(data)
+        except OSError:
+            continue
+    return n
+
+
+@settings(max_examples=150, deadline=None,
+          suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
+@given(tree_files, st.booleans(), st.integers(1, 8), st.integers(0, 4))
+def test_draft_card_on_random_trees(tmp_path_factory, schema, files, hidden, max_files, max_depth):
+    root = tmp_path_factory.mktemp("t")
+    build(str(root), files)
+    card = draft_card(str(root), include_hidden=hidden, max_files=max_files, max_depth=max_depth)
+    assert Card.from_json(card.to_json()) == card
+    assert schema_accepts(schema, json.loads(card.to_json()))
+    lint(card)
+    assert (card.approx_items or 0) <= max_files
+    assert len(card.samples) <= 6
+    if card.approx_items is not None:
+        assert card.approx_bytes == sum(
+            os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(root) for f in fs
+            if (hidden or not any(part.startswith(".") for part in os.path.relpath(os.path.join(d, f), root).split(os.sep)))
+            and len(os.path.relpath(os.path.join(d, f), root).split(os.sep)) - 1 <= max_depth
+        )
