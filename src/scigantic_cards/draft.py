@@ -298,6 +298,11 @@ def _infer_dtype(values: list[str]) -> str:
 
 def tabular_fields(source: Source, entry: Entry) -> list[Field]:
     """Column names and inferred types from the first rows of a CSV or TSV."""
+    return _tabular_columns(source, entry)[0]
+
+
+def _tabular_columns(source: Source, entry: Entry) -> tuple[list[Field], int]:
+    """The fields of a CSV or TSV, capped at MAX_FIELDS_PER_FILE, and the true column count."""
     ext = _ext(entry.path)
     gz = entry.path.lower().endswith(".gz")
     try:
@@ -306,25 +311,25 @@ def tabular_fields(source: Source, entry: Entry) -> list[Field]:
             raw = _gunzip_head(raw, TEXT_PEEK * 4)
         text = codecs.decode(raw, "utf-8-sig", "ignore")
     except Exception:
-        return []
+        return [], 0
     if "\x00" in text:
-        return []
+        return [], 0
     lines = text.splitlines()[:51]
     if len(lines) < 1:
-        return []
+        return [], 0
     try:
         rows = list(csv.reader(io.StringIO("\n".join(lines)), delimiter=TABULAR[ext]))
     except csv.Error:
-        return []
+        return [], 0
     if not rows or not any(c.strip() for c in rows[0]):
-        return []
+        return [], 0
     header, body = rows[0], rows[1:]
     out = []
     for i, name in enumerate(header[:MAX_FIELDS_PER_FILE]):
         col = [r[i] for r in body if i < len(r)]
         out.append(Field(name=name.strip()[:MAX_STRING], dtype=_infer_dtype(col),
                          note="inferred from the first rows", group=entry.path))
-    return out
+    return out, len(header)
 
 
 # ---------------------------------------------------------------- the draft
@@ -387,6 +392,7 @@ def draft_card(
 
     samples: list[Sample] = []
     fields: list[Field] = []
+    tabular_read = 0
     first_decoded: Entry | None = None
     seen_schemas: dict[tuple[tuple[str, str], ...], str] = {}
     by_kind: dict[str, list[Entry]] = {}
@@ -418,24 +424,31 @@ def draft_card(
                 except Exception:
                     pass
         elif _ext(e.path) in TABULAR:
-            cols = tabular_fields(src, e)
+            cols, ncols = _tabular_columns(src, e)
             if cols:
                 s.format = _ext(e.path)
-                s.summary = f"{len(cols)} columns"
+                s.summary = f"{len(cols)} columns" if ncols <= len(cols) else f"first {len(cols)} of {ncols:,} columns"
+                tabular_read += 1
                 _add_columns(fields, seen_schemas, s, cols)
         samples.append(s)
     for s, e in zip(samples, picks):
         if s.format and s.format not in ("csv", "tsv"):
             _add_columns(fields, seen_schemas, s, _fields_from_header_fields(s, e))
 
+    tabular_total = sum(1 for e in entries if _ext(e.path) in TABULAR)
+    if tabular_total > tabular_read > 0:
+        parts.append(f"Columns were read from {tabular_read:,} of {tabular_total:,} CSV and TSV files (see samples).")
+    layout = " ".join(parts)
+
     suffixes = Counter(_suffix(e.path) for e in entries)
     dominant = min(suffixes, key=lambda k: (-suffixes[k], k)) if suffixes else ""
     access = _access_snippets(
         location, dominant, _suffix(first_decoded.path) if first_decoded else "",
+        mixed=bool(suffixes) and suffixes[dominant] < len(entries),
     )
     card = Card(
         name=name or _default_name(location),
-        layout=" ".join(parts),
+        layout=layout,
         location=location,
         approx_bytes=None if stopped_early else total,
         approx_items=None if stopped_early else len(entries),
@@ -501,8 +514,35 @@ def _glob_snippet(location: str, suffix: str) -> str:
     )
 
 
-def _access_snippets(location: str, dominant: str, decoded_suffix: str) -> list[Access]:
-    out = [Access("List files", _glob_snippet(location, dominant), False)]
+def _all_files_snippet(location: str) -> str:
+    if "://" in location:
+        scheme, rest = location.split("://", 1)
+        proto = "gcs" if scheme in ("gs", "gcs") else scheme
+        opts = ", anon=True" if proto == "s3" else ", token='anon'" if proto == "gcs" else ""
+        return (
+            "import fsspec\n"
+            f"fs = fsspec.filesystem({proto!r}{opts})\n"
+            f"files = sorted(fs.find({rest.rstrip('/')!r}))\n"
+            "assert files, 'no files matched'\n"
+            "print(len(files), files[:3])"
+        )
+    return (
+        "import os\n"
+        f"root = os.path.expanduser({location!r})\n"
+        "files = sorted(os.path.join(d, n) for d, _, names in os.walk(root) for n in names)\n"
+        "assert files, 'no files matched'\n"
+        "print(len(files), files[:3])"
+    )
+
+
+def _access_snippets(location: str, dominant: str, decoded_suffix: str, mixed: bool = False) -> list[Access]:
+    if mixed:
+        # More than one file type: a glob on the most common one would silently skip the rest.
+        out = [Access("List all files", _all_files_snippet(location), False)]
+        if dominant:
+            out.append(Access(f"List .{dominant} files", _glob_snippet(location, dominant), False))
+    else:
+        out = [Access("List files", _glob_snippet(location, dominant), False)]
     if decoded_suffix and _h is not None and "://" not in location:
         out.append(Access(
             "Read one file header",

@@ -67,6 +67,8 @@ $ echo $?
 - Hidden files and folders are skipped unless you pass `--hidden`.
 - Symlinks are not followed, and only regular files are opened, so a FIFO cannot hang it.
 - The listing stops at `--max-files` (default 5000) or 60 seconds, and does not descend more than `--max-depth` folders (default 16). When it stops early or skips deeper folders, the layout says the counts are lower bounds and `approx_bytes` and `approx_items` are left empty rather than reporting a partial number.
+- CSV and TSV columns are read from the sampled files only (`max_samples`, default 6), and at most 200 columns per file. The layout says how many files were read, and a truncated sample says `first 200 of N columns`.
+- A folder with more than one file type gets a `List all files` snippet in addition to one for the most common type.
 - Raw file bytes are never embedded unless you pass `--embed-bytes N` (at most 4096). Even then, only files that a header decoder recognizes are read, so a `.env` or a key file in the same folder is listed but not read.
 - Unreadable folders are counted and reported in the layout.
 
