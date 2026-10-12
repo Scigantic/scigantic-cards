@@ -130,3 +130,39 @@ def test_helper_left_running_by_a_finished_snippet_is_stopped(tmp_path):
     time.sleep(0.3)
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+# ---- 0.3.2: disclosures and mixed-type folders
+
+def test_wide_csv_says_it_was_truncated(tmp_path):
+    (tmp_path / "wide.csv").write_text(",".join(f"c{i}" for i in range(500)) + "\n" + ",".join("1" for _ in range(500)) + "\n")
+    card = draft_card(str(tmp_path))
+    assert card.samples[0].summary == "first 200 of 500 columns"
+    assert len(card.fields) == 200
+
+
+def test_layout_says_when_columns_came_from_some_files_only(tmp_path):
+    for i in range(10):
+        (tmp_path / f"t{i}.csv").write_text(f"a{i},b\n1,2\n")
+    card = draft_card(str(tmp_path), max_samples=3)
+    assert "Columns were read from 3 of 10 CSV and TSV files" in card.layout
+
+
+def test_mixed_types_get_a_snippet_that_lists_everything(tmp_path):
+    (tmp_path / "a.csv").write_text("x\n1\n")
+    (tmp_path / "b.csv").write_text("x\n1\n")
+    (tmp_path / "c.tsv").write_text("x\n1\n")
+    (tmp_path / "d.csv.gz").write_bytes(zlib.compress(b"x\n1\n"))
+    card = draft_card(str(tmp_path))
+    goals = [a.goal for a in card.access]
+    assert goals[0] == "List all files" and goals[1].startswith("List .csv")
+    _, res = verify_card(card, timeout=30)
+    assert [r.status for r in res] == ["passed", "passed"]
+    ns: dict = {}
+    exec(card.access[0].snippet, ns)  # noqa: S102
+    assert len(ns["files"]) == 4
+
+
+def test_single_type_keeps_the_single_snippet(tmp_path):
+    (tmp_path / "a.csv").write_text("x\n1\n")
+    assert [a.goal for a in draft_card(str(tmp_path)).access] == ["List files"]

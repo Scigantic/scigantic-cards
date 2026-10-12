@@ -119,7 +119,8 @@ def cardish(draw):
                 doc.pop(draw(st.sampled_from(TOP)), None)
             elif _dict_items(doc.get(target)):
                 item = doc[target][0]
-                item.pop(draw(st.sampled_from(sorted(item))), None)
+                if item:  # an earlier mutation may have emptied it
+                    item.pop(draw(st.sampled_from(sorted(item))), None)
         elif where == "list_item":
             key = draw(st.sampled_from(["gotchas", "differs_from_upstream", "fields", "access"]))
             if isinstance(doc.get(key), list):
