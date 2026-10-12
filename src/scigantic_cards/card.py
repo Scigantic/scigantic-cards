@@ -102,6 +102,10 @@ class Card:
                 raw = d.decompress(raw, MAX_DECODED_BYTES + 1)
                 if d.unconsumed_tail or d.decompress(b"", 1):
                     raise CardError(f"decoded card is larger than {MAX_DECODED_BYTES} bytes")
+                if not d.eof:
+                    raise CardError("not a valid encoded card: compressed data is truncated")
+                if d.unused_data:
+                    raise CardError("not a valid encoded card: data after the end of the compressed stream")
             if len(raw) > MAX_DECODED_BYTES:
                 raise CardError(f"decoded card is larger than {MAX_DECODED_BYTES} bytes")
             return cls.from_json(raw.decode("utf-8"))
@@ -124,7 +128,7 @@ class Card:
         name = _str(obj["name"], "card.name")
         if not name:
             raise CardError("card.name: must not be empty")
-        return cls(
+        card = cls(
             name=name,
             identity=_str(obj.get("identity", ""), "card.identity"),
             summary=_str(obj.get("summary", ""), "card.summary"),
@@ -150,16 +154,34 @@ class Card:
             ],
             checked_at=_str(obj.get("checked_at", ""), "card.checked_at"),
         )
+        try:
+            json.dumps(card.to_dict(), ensure_ascii=False).encode("utf-8")
+        except UnicodeEncodeError:
+            raise CardError("card: a string contains a lone surrogate, which is not valid Unicode text") from None
+        return card
 
     @classmethod
     def from_json(cls, text: str) -> "Card":
         try:
-            data = json.loads(text, parse_constant=_reject_constant)
+            data = json.loads(text, parse_constant=_reject_constant, object_pairs_hook=_no_duplicate_keys)
         except RecursionError:
             raise CardError("JSON is nested too deeply") from None
         except json.JSONDecodeError as e:
             raise CardError(f"invalid JSON: {e}") from None
+        except CardError:
+            raise
+        except ValueError as e:  # for example an integer with more than 4300 digits
+            raise CardError(f"invalid JSON: {e}") from None
         return cls.from_dict(data)
+
+
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k, v in pairs:
+        if k in out:
+            raise CardError(f"duplicate key {k!r}")
+        out[k] = v
+    return out
 
 
 _TOP_KEYS = {

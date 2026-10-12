@@ -66,7 +66,7 @@ $ echo $?
 
 - Hidden files and folders are skipped unless you pass `--hidden`.
 - Symlinks are not followed, and only regular files are opened, so a FIFO cannot hang it.
-- The listing stops at `--max-files` (default 5000) or 60 seconds. When it stops early, the layout says the counts are lower bounds and `approx_bytes` and `approx_items` are left empty rather than reporting a partial number.
+- The listing stops at `--max-files` (default 5000) or 60 seconds, and does not descend more than `--max-depth` folders (default 16). When it stops early or skips deeper folders, the layout says the counts are lower bounds and `approx_bytes` and `approx_items` are left empty rather than reporting a partial number.
 - Raw file bytes are never embedded unless you pass `--embed-bytes N` (at most 4096). Even then, only files that a header decoder recognizes are read, so a `.env` or a key file in the same folder is listed but not read.
 - Unreadable folders are counted and reported in the layout.
 
@@ -131,13 +131,13 @@ In Python: `card.to_b64()`, `Card.from_b64(text)`. Whitespace and missing paddin
 
 `verify` runs each Python snippet in a subprocess and sets `verified` to whether it exited 0. It sets `checked_at` to today if any snippet ran. Other languages are skipped.
 
-`verify` executes code from the card, so it requires `--run`. Only run it on cards you trust. A snippet that times out (default 60 seconds, `--timeout`) is killed along with any processes it started. The generated snippets assert that their glob matched files, so a path that has moved fails instead of passing quietly.
+`verify` executes code from the card, so it requires `--run`. Only run it on cards you trust. A snippet that times out (default 60 seconds, `--timeout`) is killed along with the processes it started in its process group, and helpers it leaves running after it exits are stopped too. A child that deliberately starts its own session is not killed, but `verify` stops waiting for it at the timeout. The generated snippets assert that their glob matched files, so a path that has moved fails instead of passing quietly.
 
 `verified: true` means the snippet ran without error on the machine that ran it. It does not mean the output is correct.
 
 ## Format
 
-A card is a JSON object. Only `name` is required for the file to load. The linter checks the rest. Unknown keys are rejected.
+A card is a JSON object. Only `name` is required for the file to load. Duplicate keys and strings with lone surrogates are rejected. The linter checks the rest. Unknown keys are rejected.
 
 | Field | Type | Meaning |
 |---|---|---|
