@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: scigantic-cards
+abstract: "A small data card format and linter for LLM agents: record what differs from the well-known dataset, how big it is, and how to open it."
+authors:
+  - name: Scigantic
+    website: https://scigantic.com
+repository-code: https://github.com/Scigantic/scigantic-cards
+url: https://pypi.org/project/scigantic-cards/
+license: MIT-0
+keywords:
+  - "llm"
+  - "agents"
+  - "datasets"
+  - "data-card"
+  - "schema"
+  - "lint"
+version: "0.3.2"
+date-released: '2026-10-12'
